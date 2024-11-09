@@ -14,6 +14,18 @@ enum thread_status {
   THREAD_DYING    /* About to be destroyed. */
 };
 
+/* List of processes in THREAD_READY state, that is, processes
+   that are ready to run but not actually running. */
+static struct list ready_list;
+
+/* List of all processes.  Processes are added to this list
+   when they are first scheduled and removed when they exit. */
+static struct list all_list;
+
+/*List of processes in THREAD_BLOCKED state, that is, processes
+  that are blocked and waiting for some event to occur. */
+static struct list sleep_list;
+
 /* Thread identifier type.
    You can redefine this to whatever type you like. */
 typedef int tid_t;

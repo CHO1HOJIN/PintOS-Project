@@ -129,24 +129,22 @@ void timer_print_stats(void) {
 /* Timer interrupt handler. */
 static void timer_interrupt(struct intr_frame *args UNUSED) {
   ticks++;
-
-  thread_tick();
   /*
     check sleep list and the global tick. find any threads to wake up,
     move them to the ready list if necessary. update the global tick.
         */
-  struct list_elem *e;
+  struct list_elem *e = list_begin(&sleep_list);
   struct thread *t;
-  for (e = list_begin(&sleep_list); e != list_end(&sleep_list);
-       e = list_next(e)) {
+  while(e != list_end(&sleep_list)){
     t = list_entry(e, struct thread, elem);
-    if (ticks >= t->wakeup_tick) {
-      list_remove(e);
+    if(t->wakeup_tick <= ticks){
+      e = list_remove(e);
       thread_unblock(t);
     } else {
-      elem = list_next(e);
+      e = list_next(e);
     }
   }
+  thread_tick();
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer

@@ -20,18 +20,6 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-/* List of processes in THREAD_READY state, that is, processes
-   that are ready to run but not actually running. */
-static struct list ready_list;
-
-/*List of processes in THREAD_BLOCKED state, that is, processes
-  that are blocked and waiting for some event to occur. */
-static struct list sleep_list;
-
-/* List of all processes.  Processes are added to this list
-   when they are first scheduled and removed when they exit. */
-static struct list all_list;
-
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -140,8 +128,9 @@ void thread_tick(void) {
 
 bool compare_priority(const struct list_elem *a, const struct list_elem *b,
                       void *aux UNUSED) {
-  return list_entry(a, struct thread, elem)->priority >
-         list_entry(b, struct thread, elem)->priority;
+  struct thread *t1 = list_entry(a, struct thread, elem);
+  struct thread *t2 = list_entry(b, struct thread, elem);
+  return t1->priority > t2->priority;
 }
 
 /* Prints thread statistics. */
@@ -210,8 +199,7 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
   /* Compare the priorities of the currently running thread and the newly
      created thread. If the newly created thread has a higher priority, yield
      the CPU to the new thread. */
-  if (priority > thread_get_priority())
-    thread_yield();
+  if (priority > thread_get_priority()) thread_yield();
   return tid;
 }
 
@@ -245,8 +233,7 @@ void thread_unblock(struct thread *t) {
   old_level = intr_disable();
   ASSERT(t->status == THREAD_BLOCKED);
   // insert the thread in the ready list in order of priority
-  list_insert_ordered(&ready_list, &t->elem,
-                      (list_less_func *)&compare_priority, NULL);
+  list_insert_ordered(&ready_list, &t->elem, compare_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level(old_level);
 }
@@ -287,8 +274,8 @@ void thread_sleep(int64_t ticks) {
     intr_set_level(old_level);
   } else {
     t->status = THREAD_BLOCKED;             // (1)
-    t->wakeup_tick = timer_ticks() + ticks; // (2)
-    list_push_back(&sleep_list, &t->elem);  // (3) CHECK
+    t->wakeup_tick = ticks;                 // (2)
+    list_push_back(&sleep_list, &(t->elem));  // (3) CHECK
     schedule();                             // (4) and (5)
     intr_set_level(old_level);
   }
@@ -320,11 +307,11 @@ void thread_yield(void) {
   enum intr_level old_level;
 
   ASSERT(!intr_context());
-
   old_level = intr_disable();
+
   if (cur != idle_thread)
-    list_insert_ordered(&ready_list, &cur->elem,
-                        (list_less_func *)&compare_priority, NULL);
+    list_insert_ordered(&ready_list, &cur->elem, compare_priority, NULL);
+  
   cur->status = THREAD_READY;
   schedule();
   intr_set_level(old_level);
@@ -346,10 +333,12 @@ void thread_foreach(thread_action_func *func, void *aux) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
   // Reorder the ready list based on the new priority
-  int old_priority = thread_current()->priority;
-  thread_current()->priority = new_priority;
-  if (new_priority < old_priority)
+  if (new_priority < thread_get_priority()){
+    thread_current()->priority = new_priority;
     thread_yield();
+  } else {
+    thread_current()->priority = new_priority;
+  }
 }
 
 /* Returns the current thread's priority. */
@@ -453,15 +442,31 @@ static void init_thread(struct thread *t, const char *name, int priority) {
   t->priority = priority;
   t->magic = THREAD_MAGIC;
 
-  old_level = intr_disable();
-  list_push_back(&all_list, &t->allelem);
-  intr_set_level(old_level);
+
 
 #ifdef USERPROG
 
-  init_userprog(t);
+  // init_userprog(t);
+  t->exit_status = -1;
+  list_init(&(t->children));
+  t->parent = running_thread();
+  t->flag = 0;
+
+  // initialize file descriptor table
+  for (int i = 0; i < 128; i++)
+    t->fd_table[i] = NULL;
+
+  // initialize locks
+  sema_init(&(t->mem_lock), 0);
+  sema_init(&(t->child_lock), 0);
+  sema_init(&(t->load_lock), 0);
+
+  list_push_back(&(running_thread()->children), &(t->child));
 
 #endif
+  old_level = intr_disable();
+  list_push_back(&all_list, &t->allelem);
+  intr_set_level(old_level);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -568,19 +573,19 @@ static tid_t allocate_tid(void) {
 uint32_t thread_stack_ofs = offsetof(struct thread, stack);
 
 void init_userprog(struct thread *t) {
-  t->exit_status = -1;
-  list_init(&(t->children));
-  t->parent = running_thread();
-  t->flag = 0;
+  // t->exit_status = -1;
+  // list_init(&(t->children));
+  // t->parent = running_thread();
+  // t->flag = 0;
 
-  // initialize file descriptor table
-  for (int i = 0; i < 128; i++)
-    t->fd_table[i] = NULL;
+  // // initialize file descriptor table
+  // for (int i = 0; i < 128; i++)
+  //   t->fd_table[i] = NULL;
 
-  // initialize locks
-  sema_init(&(t->mem_lock), 0);
-  sema_init(&(t->child_lock), 0);
-  sema_init(&(t->load_lock), 0);
+  // // initialize locks
+  // sema_init(&(t->mem_lock), 0);
+  // sema_init(&(t->child_lock), 0);
+  // sema_init(&(t->load_lock), 0);
 
-  list_push_back(&(running_thread()->children), &(t->child));
+  // list_push_back(&(running_thread()->children), &(t->child));
 }
