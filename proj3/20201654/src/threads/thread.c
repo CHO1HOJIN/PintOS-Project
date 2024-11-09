@@ -138,6 +138,12 @@ void thread_tick(void) {
     intr_yield_on_return();
 }
 
+bool compare_priority(const struct list_elem *a, const struct list_elem *b,
+                      void *aux UNUSED) {
+  return list_entry(a, struct thread, elem)->priority >
+         list_entry(b, struct thread, elem)->priority;
+}
+
 /* Prints thread statistics. */
 void thread_print_stats(void) {
   printf("Thread: %lld idle ticks, %lld kernel ticks, %lld user ticks\n",
@@ -201,7 +207,11 @@ tid_t thread_create(const char *name, int priority, thread_func *function,
 
   /* Add to run queue. */
   thread_unblock(t);
-
+  /* Compare the priorities of the currently running thread and the newly
+     created thread. If the newly created thread has a higher priority, yield
+     the CPU to the new thread. */
+  if (priority > thread_get_priority())
+    thread_yield();
   return tid;
 }
 
@@ -234,7 +244,9 @@ void thread_unblock(struct thread *t) {
 
   old_level = intr_disable();
   ASSERT(t->status == THREAD_BLOCKED);
-  list_push_back(&ready_list, &t->elem);
+  // insert the thread in the ready list in order of priority
+  list_insert_ordered(&ready_list, &t->elem,
+                      (list_less_func *)&compare_priority, NULL);
   t->status = THREAD_READY;
   intr_set_level(old_level);
 }
@@ -311,7 +323,8 @@ void thread_yield(void) {
 
   old_level = intr_disable();
   if (cur != idle_thread)
-    list_push_back(&ready_list, &cur->elem);
+    list_insert_ordered(&ready_list, &cur->elem,
+                        (list_less_func *)&compare_priority, NULL);
   cur->status = THREAD_READY;
   schedule();
   intr_set_level(old_level);
@@ -332,7 +345,11 @@ void thread_foreach(thread_action_func *func, void *aux) {
 
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void thread_set_priority(int new_priority) {
+  // Reorder the ready list based on the new priority
+  int old_priority = thread_current()->priority;
   thread_current()->priority = new_priority;
+  if (new_priority < old_priority)
+    thread_yield();
 }
 
 /* Returns the current thread's priority. */
